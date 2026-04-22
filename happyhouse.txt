@@ -1,0 +1,509 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInWithCustomToken, 
+  signInAnonymously, 
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  linkWithCredential,
+  EmailAuthProvider,
+  signOut
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  updateDoc 
+} from 'firebase/firestore';
+import { 
+  Home, 
+  ShoppingCart, 
+  UserPlus, 
+  Plus, 
+  Search, 
+  AlertCircle, 
+  CheckCircle2, 
+  Package, 
+  ExternalLink,
+  Trash2,
+  Edit2,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  MoreVertical,
+  Menu,
+  Check,
+  Award,
+  Gift,
+  Copy,
+  FolderHeart,
+  ShieldCheck,
+  Coins,
+  TrendingDown,
+  BarChart3,
+  ArrowRight,
+  Receipt,
+  Store,
+  Grid,
+  Send,
+  Users,
+  LogOut,
+  User as UserIcon,
+  Sparkles,
+  PieChart,
+  Wallet,
+  TrendingUp,
+  Heart,
+  LogIn,
+  KeyRound,
+  Mail
+} from 'lucide-react';
+
+// --- Firebase Configuration (Provided by Canvas environment) ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+const App = () => {
+  // --- Giffarine Information ---
+  const REFERRER_ID = "57138605";
+  const REGISTER_URL = `https://www.giffarine.com/member/register/${REFERRER_ID}`;
+  const PRODUCTS_URL = "https://www.giffarine.com/products";
+  
+  // --- Global States ---
+  const [user, setUser] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [activeView, setActiveView] = useState('landing'); // 'landing' or 'app'
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [inventory, setInventory] = useState([]);
+  const [leads, setLeads] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  
+  // --- UI & Auth States ---
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [authMode, setAuthMode] = useState('signup'); 
+  const [authForm, setAuthForm] = useState({ email: '', password: '' });
+  const [authError, setAuthError] = useState('');
+  
+  const [editingItem, setEditingItem] = useState(null);
+  const [formData, setFormData] = useState({ name: '', category: 'อาหาร', stock: 1, minStock: 1, price: 0 });
+  const [leadForm, setLeadForm] = useState({ name: '', phone: '', note: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [regSuccess, setRegSuccess] = useState(false);
+  const [showCopyMsg, setShowCopyMsg] = useState(false);
+
+  // --- Static Data ---
+  const CATEGORIES = {
+    'อาหาร': { color: 'bg-[#C2E9FB]', iconColor: 'text-blue-500', badgeColor: 'bg-blue-500' },
+    'เครื่องปรุง': { color: 'bg-[#E2F0CB]', iconColor: 'text-green-600', badgeColor: 'bg-green-500' },
+    'ของใช้ในบ้าน': { color: 'bg-[#FFDCC5]', iconColor: 'text-orange-500', badgeColor: 'bg-orange-500' },
+    'ยา/สุขภาพ': { color: 'bg-[#D1C4E9]', iconColor: 'text-purple-500', badgeColor: 'bg-purple-500' },
+    'ทั่วไป': { color: 'bg-[#FCE4EC]', iconColor: 'text-pink-500', badgeColor: 'bg-pink-500' }
+  };
+
+  const SAMPLE_PRODUCTS = [
+    { name: 'สกินแคร์บำรุงล้ำลึก', desc: 'สวยใส มั่นใจสไตล์กิฟฟารีน', img: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?auto=format&fit=crop&q=80&w=200&h=200' },
+    { name: 'ผลิตภัณฑ์เสริมอาหาร', desc: 'ดูแลสุขภาพคนในบ้านให้แข็งแรง', img: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&q=80&w=200&h=200' },
+    { name: 'ของใช้ในบ้านอเนกประสงค์', desc: 'สะอาด ปลอดภัย เพื่อครอบครัว', img: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?auto=format&fit=crop&q=80&w=200&h=200' }
+  ];
+
+  const COMPARISON_ITEMS = [
+    { name: 'ข้าวสารหอมมะลิ (5กก.)', retail: 220, giff: 180 },
+    { name: 'ยาสีฟันสมุนไพร', retail: 160, giff: 120 },
+    { name: 'น้ำยาล้างจานสูตรเข้มข้น', retail: 85, giff: 65 },
+    { name: 'ผงซักฟอกสูตรพรีเมียม', retail: 180, giff: 135 },
+    { name: 'น้ำยาถูพื้นอเนกประสงค์', retail: 120, giff: 90 },
+    { name: 'แชมพูสูตรอ่อนโยน', retail: 190, giff: 145 },
+    { name: 'ครีมอาบน้ำบำรุงผิว', retail: 170, giff: 125 },
+    { name: 'น้ำยาปรับผ้านุ่ม', retail: 140, giff: 105 },
+    { name: 'สบู่ล้างมือฆ่าเชื้อ', retail: 90, giff: 68 },
+    { name: 'แคลเซียมเสริมอาหาร', retail: 420, giff: 315 },
+  ];
+
+  // --- Authentication ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) { console.error("Auth Error:", error); } 
+      finally { setIsAuthLoading(false); }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser && !currentUser.isAnonymous) {
+        setActiveView('app');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- Real-time Data Sync ---
+  useEffect(() => {
+    if (!user) return;
+    const unsubInv = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), (sn) => {
+      setInventory(sn.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    const unsubLeads = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), (sn) => {
+      setLeads(sn.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { unsubInv(); unsubLeads(); };
+  }, [user]);
+
+  // --- Logic Calculations ---
+  const totalRetail = COMPARISON_ITEMS.reduce((sum, item) => sum + item.retail, 0);
+  const totalGiff = COMPARISON_ITEMS.reduce((sum, item) => sum + item.giff, 0);
+  const totalSavings = totalRetail - totalGiff;
+  const shoppingList = useMemo(() => inventory.filter(i => i.stock <= (i.minStock || 1) / 2 || i.stock === 0), [inventory]);
+  const categoryStats = useMemo(() => {
+    const stats = {};
+    Object.keys(CATEGORIES).forEach(cat => {
+      const items = inventory.filter(i => i.category === cat);
+      stats[cat] = { total: items.length, out: items.filter(i => i.stock === 0).length };
+    });
+    return stats;
+  }, [inventory]);
+
+  // --- Auth Handlers ---
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      if (authMode === 'signup') {
+        if (user?.isAnonymous) {
+          const credential = EmailAuthProvider.credential(authForm.email, authForm.password);
+          await linkWithCredential(user, credential);
+        } else {
+          await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
+        }
+      } else {
+        await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
+      }
+      setShowLoginModal(false);
+    } catch (err) {
+      setAuthError(err.message.includes('auth/email-already-in-use') ? 'อีเมลนี้ถูกใช้งานแล้วค่ะ' : 'อีเมลหรือรหัสผ่านไม่ถูกต้องค่ะ');
+    }
+  };
+
+  const handleLogout = async () => {
+    if (window.confirm('คุณต้องการออกจากระบบใช่ไหมคะ?')) {
+      await signOut(auth);
+      window.location.reload();
+    }
+  };
+
+  // --- Inventory Handlers ---
+  const handleSaveItem = async (e) => {
+    e.preventDefault(); if (!user) return;
+    const invRef = collection(db, 'artifacts', appId, 'users', user.uid, 'inventory');
+    if (editingItem) await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', editingItem), formData);
+    else await addDoc(invRef, { ...formData, createdAt: new Date().toISOString() });
+    setIsModalOpen(false); setEditingItem(null);
+  };
+
+  const deleteItem = async (id) => {
+    if (!user) return;
+    if (window.confirm('คุณแน่ใจว่าต้องการลบรายการนี้ใช่ไหมคะ?')) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', id));
+      } catch (err) { console.error(err); }
+    }
+  };
+
+  const updateStock = async (id, delta) => {
+    const item = inventory.find(i => i.id === id);
+    if (!item || !user) return;
+    await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', id), { stock: Math.max(0, (Number(item.stock) || 0) + delta) });
+  };
+
+  // --- Lead Submission ---
+  const handleLeadSubmit = async (e) => {
+    e.preventDefault(); if (!user) return;
+    setIsSubmitting(true);
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), { ...leadForm, timestamp: new Date().toISOString(), userId: user.uid });
+    setRegSuccess(true); setLeadForm({ name: '', phone: '', note: '' });
+    setIsSubmitting(false); setTimeout(() => setRegSuccess(false), 5000);
+  };
+
+  const copyId = () => {
+    const el = document.createElement('textarea'); el.value = REFERRER_ID;
+    document.body.appendChild(el); el.select(); document.execCommand('copy');
+    document.body.removeChild(el); setShowCopyMsg(true); setTimeout(() => setShowCopyMsg(false), 2000);
+  };
+
+  // --- Main Render Logic ---
+  const LandingView = () => (
+    <div className="animate-in fade-in duration-700 bg-white min-h-screen">
+      <section className="relative h-[600px] flex items-center justify-center overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-[#E8F5E9] to-white opacity-60"></div>
+        <div className="relative z-10 text-center px-6 max-w-lg">
+          <div className="inline-flex items-center gap-2 bg-white/80 backdrop-blur shadow-sm border border-green-100 px-4 py-2 rounded-full mb-8">
+            <Sparkles size={16} className="text-yellow-500" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-green-700">The Future of Home Economy</span>
+          </div>
+          <h1 className="text-4xl sm:text-5xl font-black text-slate-800 leading-tight mb-6 text-center">
+            เปลี่ยนรายจ่ายในบ้าน<br/>ให้เป็น <span className="text-[#2E7D32]">เงินออม</span>
+          </h1>
+          <p className="text-sm text-slate-500 font-medium leading-relaxed mb-10 px-4 text-center">
+            จัดการงบประมาณอย่างชาญฉลาด ลดการซื้อซ้ำ และรับเงินคืนสูงสุด 25% จากทุกการช้อปปิ้งผ่านระบบสมาชิกกิฟฟารีน
+          </p>
+          <div className="flex flex-col gap-4">
+            <button 
+              onClick={() => setActiveView('app')}
+              className="group bg-[#1B5E20] text-white px-10 py-5 rounded-[2.5rem] font-black text-sm uppercase tracking-widest shadow-2xl shadow-green-200 flex items-center justify-center gap-3 active:scale-95 transition-all mx-auto"
+            >
+              เริ่มต้นจดบันทึกฟรี <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+            </button>
+            <button onClick={() => {setAuthMode('login'); setShowLoginModal(true);}} className="text-xs font-black text-[#2E7D32] uppercase tracking-[0.2em] hover:underline">มีบัญชีอยู่แล้ว? เข้าสู่ระบบ</button>
+          </div>
+        </div>
+      </section>
+      {/* Benefits Section */}
+      <section className="px-6 py-20 bg-slate-50 rounded-[3rem] mx-4 shadow-inner mb-20">
+        <div className="max-w-md mx-auto">
+          <h2 className="text-2xl font-black text-slate-800 mb-12 text-center">3 กุญแจสำคัญสู่ความมั่งคั่งในบ้าน</h2>
+          <div className="space-y-8">
+            {[
+              { icon: PieChart, title: 'จัดงบการเงินที่ชัดเจน', desc: 'รู้ยอดจ่ายล่วงหน้า ควบคุมรายจ่ายได้ตามงบที่คุณกำหนดเอง', color: 'bg-blue-50 text-blue-500' },
+              { icon: Wallet, title: 'ลดขยะและการซื้อซ้ำ', desc: 'ระบบคลังสินค้าช่วยเตือนของที่มีอยู่แล้ว ไม่ต้องซื้อเกินความจำเป็น', color: 'bg-orange-50 text-orange-500' },
+              { icon: TrendingUp, title: 'เงินคืนปันผลสะสม', desc: 'ทุกการซื้อของใช้พื้นฐาน เปลี่ยนเป็นคะแนนสะสมและรับเงินคืนจริง', color: 'bg-green-50 text-green-600' }
+            ].map((b, i) => (
+              <div key={i} className="flex gap-5 items-start bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 transition-all hover:scale-[1.02]">
+                <div className={`${b.color} p-4 rounded-2xl shrink-0`}><b.icon size={24} strokeWidth={2.5} /></div>
+                <div className="text-left">
+                  <h4 className="font-black text-slate-800 mb-1 text-left">{b.title}</h4>
+                  <p className="text-xs text-slate-400 font-bold leading-relaxed text-left">{b.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+
+  if (isAuthLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAF9]"><div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-[#2E7D32]"></div></div>;
+
+  return (
+    <>
+      {activeView === 'landing' ? <LandingView /> : (
+        <div className="min-h-screen bg-[#F8FAF9] pb-32 font-sans text-slate-800">
+          <header className="bg-gradient-to-r from-[#0D4111] to-[#2E7D32] text-white p-5 pt-7 sticky top-0 z-20 shadow-xl">
+            <div className="flex justify-between items-center mb-5 px-1">
+              <div className="flex items-center gap-3 text-left">
+                <button onClick={() => setActiveView('landing')} className="bg-white/20 p-2 rounded-2xl backdrop-blur-md border border-white/10 shadow-inner"><FolderHeart size={20} className="text-white" /></button>
+                <div className="text-left"><h1 className="text-lg font-black tracking-tight leading-none uppercase italic text-left">Happy House</h1><p className="text-[9px] text-green-100 font-bold uppercase tracking-[0.2em] mt-1 text-left">Management Mode</p></div>
+              </div>
+              <div className="flex items-center gap-3">
+                 <button 
+                  onClick={() => user?.isAnonymous ? setShowLoginModal(true) : handleLogout()}
+                  className="group relative"
+                 >
+                   <div className={`w-9 h-9 rounded-full border border-white/30 flex items-center justify-center font-bold text-[10px] uppercase shadow-inner overflow-hidden ${user?.isAnonymous ? 'bg-orange-400' : 'bg-green-400'}`}>
+                     {user?.isAnonymous ? <AlertCircle size={18} className="animate-pulse" /> : <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt="avatar" />}
+                   </div>
+                   {user?.isAnonymous && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>}
+                 </button>
+              </div>
+            </div>
+            <div className="flex bg-black/10 p-1 rounded-2xl backdrop-blur-sm shadow-inner">
+              {[ { id: 'inventory', icon: Home, label: 'คลังของ' }, { id: 'shopping', icon: ShoppingCart, label: 'ต้องซื้อ' }, { id: 'team', icon: UserPlus, label: 'ร่วมทีม' } ].map((tab) => (
+                <button key={tab.id} onClick={() => {setActiveTab(tab.id); setSelectedCategory(null);}} className={`flex-1 py-3 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 ${activeTab === tab.id ? 'bg-white text-[#1B5E20] shadow-md' : 'text-white/70'}`}><tab.icon size={14} /> {tab.label}</button>
+              ))}
+            </div>
+          </header>
+
+          <main className="max-w-md mx-auto p-4 pt-6">
+            {user?.isAnonymous && (
+              <div className="bg-orange-50 border border-orange-100 p-4 rounded-3xl mb-6 flex items-center justify-between animate-in slide-in-from-top">
+                <div className="flex items-center gap-3 text-left">
+                   <AlertCircle size={20} className="text-orange-500" />
+                   <p className="text-[10px] font-black text-orange-700 uppercase tracking-tight text-left leading-tight">ลงทะเบียนเพื่อบันทึกข้อมูลถาวร</p>
+                </div>
+                <button onClick={() => {setAuthMode('signup'); setShowLoginModal(true);}} className="text-[10px] font-black bg-orange-500 text-white px-4 py-2 rounded-full uppercase shrink-0 ml-2 shadow-sm">สมัครสมาชิก</button>
+              </div>
+            )}
+
+            {activeTab === 'inventory' && (
+              <div className="space-y-4 animate-in fade-in duration-500">
+                {!selectedCategory ? (
+                  <div className="space-y-6">
+                    <div className="bg-white p-7 rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden text-left">
+                      <div className="flex items-center gap-3 mb-6 px-1 text-left"><Receipt className="text-[#2E7D32]" size={20} /><h3 className="text-sm font-black text-slate-800 uppercase tracking-widest text-left">ความคุ้มค่าที่คุณได้รับ</h3></div>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-3 gap-2 px-2 text-[9px] font-black uppercase text-slate-400 text-left"><div className="col-span-1 text-left">รายการ</div><div className="text-center">ห้างทั่วไป</div><div className="text-center text-[#2E7D32]">ทีมกิฟฟารีน</div></div>
+                        <div className="max-h-48 overflow-y-auto pr-1 space-y-2">
+                          {COMPARISON_ITEMS.slice(0,5).map((item, idx) => (
+                            <div key={idx} className="grid grid-cols-3 gap-2 px-2 py-3 rounded-2xl bg-slate-50/50 border border-slate-100 items-center">
+                              <div className="text-[10px] font-bold text-slate-700 text-left leading-tight">{item.name}</div>
+                              <div className="text-center text-[10px] font-bold text-slate-400">฿{item.retail}</div>
+                              <div className="text-center text-[11px] font-black text-[#2E7D32]">฿{item.giff}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4 p-5 bg-[#2E7D32] rounded-3xl text-white flex justify-between items-center shadow-xl">
+                          <div className="text-left"><p className="text-[10px] font-black uppercase tracking-widest opacity-80 text-left">เงินคืนสะสมประเมิน</p><p className="text-2xl font-black italic text-left">฿{totalSavings.toLocaleString()}</p></div>
+                          <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-md"><Coins size={24} className="text-yellow-300" /></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid gap-3">
+                      <div className="flex justify-between items-center px-2 mb-1"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">Inventory List</p><button onClick={() => { setEditingItem(null); setFormData({name:'', category:'อาหาร', stock:1, minStock:1, price:0}); setIsModalOpen(true); }} className="text-[#2E7D32] flex items-center gap-1 font-black text-[10px] uppercase"><Plus size={14} /> เพิ่มรายการ</button></div>
+                      {Object.entries(CATEGORIES).map(([name, style]) => (
+                        <button key={name} onClick={() => setSelectedCategory(name)} className={`w-full ${style.color} p-5 rounded-[2.2rem] flex justify-between items-center shadow-sm border border-black/5 active:scale-[0.98] transition-all`}>
+                          <div className="flex items-center gap-4 text-left">
+                            <div className="bg-white/90 p-3 rounded-2xl shadow-sm border border-black/5"><Package size={24} className={style.iconColor} /></div>
+                            <div className="text-left"><span className="font-black text-slate-800 text-lg block leading-none text-left">{name}</span><span className="text-[10px] font-bold text-slate-500 uppercase mt-2 block tracking-tight text-left">{categoryStats[name].total} รายการ | {categoryStats[name].out > 0 ? `${categoryStats[name].out} หมด` : 'มีครบ'}</span></div>
+                          </div>
+                          <ChevronRight size={20} className="text-slate-400 opacity-50" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 animate-in slide-in-from-right duration-300 text-left">
+                    <button onClick={() => setSelectedCategory(null)} className="flex items-center gap-1 text-slate-400 font-black text-[10px] uppercase mb-2 tracking-wider"><ChevronLeft size={14} /> กลับหน้าหมวดหมู่</button>
+                    <div className="flex justify-between items-end mb-6 text-left">
+                      <div className="text-left"><h2 className="text-3xl font-black text-slate-800 leading-tight text-left">{selectedCategory}</h2><p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1 text-left">คลังรายการสิ่งของ</p></div>
+                      <button onClick={() => { setEditingItem(null); setFormData({name:'', category:selectedCategory, stock:1, minStock:1, price:0}); setIsModalOpen(true); }} className="bg-[#2E7D32] text-white p-3 rounded-2xl shadow-lg active:scale-90"><Plus size={24} strokeWidth={3} /></button>
+                    </div>
+                    <div className="grid gap-3">
+                      {inventory.filter(i => i.category === selectedCategory).map(item => (
+                        <div key={item.id} className="bg-white p-5 rounded-[2.2rem] shadow-sm border border-slate-100 text-left">
+                          <div className="flex justify-between items-start mb-4 text-left">
+                            <div className="text-left"><h4 className="font-black text-slate-800 text-lg leading-tight text-left">{item.name}</h4><p className="text-[10px] font-black text-slate-300 uppercase mt-1 italic tracking-widest text-left">฿{item.price}</p></div>
+                            <div className="flex gap-1">
+                              <button onClick={() => { setEditingItem(item.id); setFormData(item); setIsModalOpen(true); }} className="p-2 text-slate-200 hover:text-blue-400"><Edit2 size={16} /></button>
+                              <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center bg-slate-50 p-2 rounded-2xl border border-slate-100 px-3">
+                            <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase ${item.stock === 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{item.stock === 0 ? 'ของหมดแล้ว' : `คงเหลือ ${item.stock}`}</span>
+                            <div className="flex items-center gap-4 px-1">
+                              <button onClick={() => updateStock(item.id, -1)} className="w-8 h-8 font-black text-slate-400 hover:text-slate-800 transition-colors">-</button>
+                              <span className="w-4 text-center font-black text-sm">{item.stock}</span>
+                              <button onClick={() => updateStock(item.id, 1)} className="w-8 h-8 font-black text-slate-400 hover:text-slate-800 transition-colors">+</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Other views (Shopping & Team) would follow the same pattern... (Omitted for brevity in this specific file but included in logic) */}
+            {activeTab === 'shopping' && (
+              <div className="space-y-6 animate-in fade-in duration-300 pb-10">
+                <div className="bg-white p-7 rounded-[2.5rem] shadow-sm border border-slate-100 relative overflow-hidden text-left">
+                   <div className="relative z-10 flex justify-between items-center text-left">
+                     <div className="text-left"><h2 className="text-3xl font-black text-slate-800 leading-tight text-left">Must Buy</h2><p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1 text-left">เตรียมเติมของเข้าบ้าน</p></div>
+                     <div className="bg-indigo-50 p-4 rounded-[1.8rem] text-center border border-indigo-100 min-w-[80px] shadow-inner"><p className="text-[10px] font-black text-indigo-400 uppercase mb-1">Items</p><p className="text-2xl font-black text-indigo-600">{shoppingList.length}</p></div>
+                   </div>
+                </div>
+                <div className="space-y-3 px-1">
+                  {shoppingList.length > 0 ? shoppingList.map(item => (
+                    <div key={item.id} className="bg-white p-5 rounded-[2rem] shadow-sm flex justify-between items-center border border-slate-50 text-left"><div className="flex gap-4 items-center text-left"><button onClick={() => updateStock(item.id, (item.minStock || 1) + 1)} className="w-12 h-12 rounded-[1.3rem] border-2 border-slate-100 flex items-center justify-center text-transparent hover:text-green-500 hover:border-green-200 transition-all shadow-inner"><Check size={24} strokeWidth={4} /></button><div className="text-left"><h3 className="font-black text-slate-800 leading-tight text-left">{item.name}</h3><div className="flex items-center gap-2 mt-2 text-left"><span className={`w-2 h-2 rounded-full ${CATEGORIES[item.category]?.badgeColor}`}></span><span className="text-[10px] font-black text-slate-300 uppercase tracking-tighter text-left">{item.category}</span></div></div></div><MoreVertical size={18} className="text-slate-200" /></div>
+                  )) : (
+                    <div className="text-center py-20"><div className="w-20 h-20 bg-green-50 rounded-[2rem] flex items-center justify-center mx-auto mb-4 border border-green-100"><CheckCircle2 size={40} className="text-green-500" /></div><p className="font-black text-slate-400 uppercase tracking-widest text-sm text-center">คลังของในบ้านครบถ้วนแล้วค่ะ!</p></div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'team' && (
+              <div className="space-y-6 animate-in fade-in duration-300 pb-10 text-left">
+                 <div className="text-center py-2 animate-bounce-slow text-center"><h2 className="text-xl font-black text-[#2E7D32] tracking-tight uppercase text-center leading-none">ครอบครัวกิฟฟารีน</h2></div>
+                 <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center relative overflow-hidden px-6 text-left">
+                    <div className="absolute left-0 top-0 w-2 h-full bg-indigo-500"></div>
+                    <div className="text-left"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">รหัสผู้แนะนำ</p><h3 className="text-2xl font-black text-indigo-600 tracking-tight text-left italic">{REFERRER_ID}</h3></div>
+                    <button onClick={copyId} className="bg-indigo-50 text-indigo-600 px-5 py-3 rounded-2xl font-black text-xs uppercase shadow-sm active:scale-95 transition-all">{showCopyMsg ? 'คัดลอกแล้ว' : 'คัดลอกรหัส'}</button>
+                 </div>
+                 <div className="bg-white p-8 rounded-[2.8rem] shadow-xl border border-slate-100 text-left relative overflow-hidden">
+                    <div className="flex items-center gap-3 mb-6 text-left"><div className="p-3 bg-green-50 text-[#2E7D32] rounded-2xl shadow-sm"><UserPlus size={24} strokeWidth={3} /></div><div className="text-left"><h3 className="text-lg font-black text-slate-800 text-left">สมัครสมาชิกทีมกิฟฟารีน</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-left">รับเงินคืนและสิทธิประโยชน์มากมาย</p></div></div>
+                    {regSuccess ? <div className="py-10 text-center animate-in zoom-in"><Check size={48} className="mx-auto text-green-500 mb-4" /><p className="font-black text-slate-800 text-center">ส่งข้อมูลเรียบร้อยแล้วค่ะ!</p></div> : 
+                      <form onSubmit={handleLeadSubmit} className="space-y-4 text-left">
+                        <input type="text" required className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-none shadow-inner text-left focus:ring-2 focus:ring-green-100 transition-all" placeholder="ชื่อ-นามสกุล" value={leadForm.name} onChange={e => setLeadForm({...leadForm, name: e.target.value})} />
+                        <input type="tel" required className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-none shadow-inner text-left focus:ring-2 focus:ring-green-100 transition-all" placeholder="เบอร์โทรศัพท์" value={leadForm.phone} onChange={e => setLeadForm({...leadForm, phone: e.target.value})} />
+                        <button type="submit" disabled={isSubmitting} className="w-full bg-[#2E7D32] text-white py-5 rounded-[1.8rem] font-black text-sm uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">{isSubmitting ? 'กำลังบันทึก...' : <><Send size={18} /> ส่งข้อมูลสมัครสมาชิก</>}</button>
+                      </form>
+                    }
+                 </div>
+                 <div className="bg-white p-7 rounded-[2.5rem] shadow-sm border border-slate-100 text-left">
+                    <div className="flex items-center gap-3 mb-6 px-1 text-left"><Grid className="text-[#2E7D32]" size={20} /><h3 className="text-sm font-black text-slate-800 uppercase tracking-widest text-left">สินค้าแนะนำ</h3></div>
+                    <div className="space-y-4 text-left">
+                       {SAMPLE_PRODUCTS.map((prod, idx) => (
+                         <div key={idx} className="flex items-center gap-4 p-3 bg-slate-50/50 rounded-2xl border border-slate-100 overflow-hidden text-left"><img src={prod.img} alt={prod.name} className="w-16 h-16 rounded-xl object-cover shadow-sm bg-slate-200" /><div className="text-left"><h4 className="text-[12px] font-black text-slate-800 text-left leading-none">{prod.name}</h4><p className="text-[10px] text-slate-400 mt-1 font-bold text-left leading-tight">{prod.desc}</p></div></div>
+                       ))}
+                    </div>
+                    <a href={PRODUCTS_URL} target="_blank" className="mt-6 w-full py-4 bg-[#E8F5E9] text-[#2E7D32] rounded-2xl font-black text-[11px] uppercase tracking-widest flex items-center justify-center gap-2 border border-green-100 transition-colors hover:bg-green-100">เลือกชมสินค้าทั้งหมด <ExternalLink size={14} /></a>
+                 </div>
+              </div>
+            )}
+          </main>
+          {/* Navigation & Modal Rendered Globally Below */}
+          <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t flex justify-around items-center pb-9 pt-4 z-30 shadow-2xl">
+            {[ { id: 'inventory', icon: Home, label: 'คลังของ' }, { id: 'shopping', icon: ShoppingCart, label: 'ต้องซื้อ', badge: shoppingList.length }, { id: 'team', icon: UserPlus, label: 'ร่วมทีม' } ].map((tab) => (
+              <button key={tab.id} onClick={() => {setActiveTab(tab.id); setSelectedCategory(null);}} className={`flex flex-col items-center gap-1.5 px-6 py-2 transition-all ${activeTab === tab.id ? 'text-[#1B5E20]' : 'text-slate-300'}`}><div className="relative"><tab.icon size={22} strokeWidth={activeTab === tab.id ? 3 : 2} />{tab.badge > 0 && <span className="absolute -top-1.5 -right-2.5 bg-red-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white">{tab.badge}</span>}</div><span className="text-[9px] font-black uppercase tracking-tighter text-center">{tab.label}</span></button>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {/* Shared Auth & Inventory Modals */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-2xl animate-in zoom-in duration-300 text-left">
+            <div className="flex justify-between items-center mb-8"><div className="text-left"><h2 className="text-2xl font-black text-slate-800 leading-none text-left">{authMode === 'signup' ? (user?.isAnonymous ? 'บันทึกถาวร' : 'สร้างบัญชี') : 'ยินดีต้อนรับกลับ'}</h2><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 text-left">{authMode === 'signup' ? 'เพื่อความปลอดภัยของข้อมูลคุณ' : 'กรุณาเข้าสู่ระบบ'}</p></div><button onClick={() => setShowLoginModal(false)} className="text-slate-300 bg-slate-50 p-2 rounded-full hover:bg-slate-100 transition-colors"><X size={20}/></button></div>
+            {authError && <div className="bg-red-50 text-red-500 p-4 rounded-2xl text-[10px] font-black mb-6 border border-red-100 animate-shake">{authError}</div>}
+            <form onSubmit={handleAuth} className="space-y-4 text-left">
+              <div className="space-y-1 text-left"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 text-left block">อีเมล</label><div className="relative text-left"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} /><input type="email" required className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold border-none shadow-inner text-left focus:ring-2 focus:ring-green-100 transition-all" placeholder="example@mail.com" value={authForm.email} onChange={e => setAuthForm({...authForm, email: e.target.value})} /></div></div>
+              <div className="space-y-1 text-left"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 text-left block">รหัสผ่าน</label><div className="relative text-left"><KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} /><input type="password" required className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold border-none shadow-inner text-left focus:ring-2 focus:ring-green-100 transition-all" placeholder="••••••••" value={authForm.password} onChange={e => setAuthForm({...authForm, password: e.target.value})} /></div></div>
+              <button type="submit" className="w-full bg-[#1B5E20] text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all text-center">{authMode === 'signup' ? (user?.isAnonymous ? 'ยืนยันการบันทึก' : 'สร้างบัญชี') : 'เข้าสู่ระบบ'} <ArrowRight size={18} /></button>
+            </form>
+            <div className="mt-8 text-center"><button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-[#2E7D32] transition-colors">{authMode === 'login' ? 'ยังไม่มีบัญชี? สมัครสมาชิก' : 'มีบัญชีแล้ว? เข้าสู่ระบบ'}</button></div>
+          </div>
+        </div>
+      )}
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-end justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom pb-12 overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-8 px-2 text-left"><h2 className="text-2xl font-black text-slate-800 leading-none text-left">{editingItem ? 'แก้ไขรายการ' : 'เพิ่มของใหม่'}</h2><button onClick={() => setIsModalOpen(false)} className="text-slate-300 bg-slate-50 p-2 rounded-full hover:bg-slate-100 transition-colors"><X size={20}/></button></div>
+            <form onSubmit={handleSaveItem} className="space-y-6 text-left">
+              <div className="space-y-1 px-1 text-left"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 text-left block font-black">ชื่อสินค้า</label><input type="text" required className="w-full p-4 bg-slate-50 border-none rounded-2xl font-black shadow-inner focus:ring-2 focus:ring-green-100 text-left" placeholder="ระบุชื่อสินค้า" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+              <div className="grid grid-cols-2 gap-4 px-1 text-left"><div className="space-y-1 text-left"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 text-left block font-black">หมวดหมู่</label><select className="w-full p-4 bg-slate-50 border-none rounded-2xl font-black shadow-inner appearance-none focus:ring-2 focus:ring-green-100 text-left" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{Object.keys(CATEGORIES).map(c => <option key={c}>{c}</option>)}</select></div><div className="space-y-1 text-left"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 text-left block font-black">ราคาประมาณ</label><input type="number" className="w-full p-4 bg-slate-50 border-none rounded-2xl font-black shadow-inner focus:ring-2 focus:ring-green-100 text-left" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} /></div></div>
+              <div className="grid grid-cols-2 gap-4 px-1 text-center"><div className="space-y-1 text-center"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block font-black text-center">สต็อก (ชิ้น)</label><input type="number" className="w-full p-4 bg-slate-50 border-none rounded-2xl font-black text-center shadow-inner" value={formData.stock} onChange={e => setFormData({...formData, stock: Number(e.target.value)})} /></div><div className="space-y-1 text-center"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block font-black text-center">ขั้นต่ำ</label><input type="number" className="w-full p-4 bg-slate-50 border-none rounded-2xl font-black text-center shadow-inner" value={formData.minStock} onChange={e => setFormData({...formData, minStock: Number(e.target.value)})} /></div></div>
+              <button type="submit" className="w-full bg-[#1B5E20] text-white py-5 rounded-[2rem] font-black text-lg shadow-xl shadow-green-100 active:scale-95 transition-all mt-4 uppercase tracking-widest text-center">บันทึกรายการ</button>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      <style>{`
+        @keyframes bounce-slow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+        .animate-bounce-slow { animation: bounce-slow 3s ease-in-out infinite; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #f1f1f1; border-radius: 10px; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
+      `}</style>
+    </>
+  );
+};
+
+export default App;
